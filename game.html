@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dino Lottie Runner</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/bodymovin/5.12.2/lottie.min.js"></script>
+  <style>
+    /* Shared scale tokens keep the scene responsive without spreading layout math through the CSS. */
+    :root {
+      --scene-width: min(100vw, 1080px);
+      --scene-height: min(100vh, 620px);
+      --ground-bottom: -58px;
+      --ground-height: 210px;
+      --play-bottom: 96px;
+      --ink: #233346;
+      --paper: #fff7d7;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+    }
+
+    body {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      background: #0e1721;
+      font-family: Georgia, "Times New Roman", serif;
+      color: var(--paper);
+      user-select: none;
+    }
+
+    button {
+      font: inherit;
+    }
+
+    /* The game lives inside one clipped stage; everything else is layered within it. */
+    .game-shell {
+      width: var(--scene-width);
+      height: var(--scene-height);
+      min-height: 420px;
+      position: relative;
+      overflow: hidden;
+      isolation: isolate;
+      background:
+        linear-gradient(180deg, #72c7e8 0%, #b7e8f0 48%, #f5d483 100%);
+    }
+
+    .scene-layer,
+    .entity-layer,
+    .ui-layer,
+    .screen {
+      position: absolute;
+      inset: 0;
+    }
+
+    .scene-layer {
+      pointer-events: none;
+    }
+
+    /* Background assets scroll at different speeds for a simple parallax effect. */
+    .sun {
+      position: absolute;
+      width: clamp(140px, 20.8vw, 231px);
+      height: clamp(140px, 20.8vw, 231px);
+      top: 26px;
+      right: clamp(150px, 28vw, 360px);
+    }
+
+    .hill-track,
+    .ground-track {
+      position: absolute;
+      left: 0;
+      display: flex;
+      width: max-content;
+      will-change: transform;
+    }
+
+    .hill-track {
+      bottom: 78px;
+      height: clamp(181px, 37vh, 322px);
+      align-items: flex-end;
+    }
+
+    .hill-group {
+      display: flex;
+      align-items: flex-end;
+      gap: clamp(24px, 5.3vw, 61px);
+      flex: 0 0 auto;
+    }
+
+    .hill-tile {
+      width: clamp(346px, 64vw, 692px);
+      height: auto;
+      flex: 0 0 auto;
+      display: block;
+    }
+
+    .hill-tile.is-small {
+      width: clamp(253px, 45vw, 479px);
+    }
+
+    .hill-tile.is-medium {
+      width: clamp(333px, 56vw, 599px);
+    }
+
+    .hill-tile.is-large {
+      width: clamp(439px, 74vw, 798px);
+    }
+
+    .ground-track {
+      bottom: var(--ground-bottom);
+      height: var(--ground-height);
+      align-items: flex-end;
+      z-index: 5;
+    }
+
+    .ground-tile {
+      width: clamp(820px, 138vw, 1380px);
+      height: auto;
+      flex: 0 0 auto;
+      display: block;
+    }
+
+    .entity-layer {
+      z-index: 8;
+      pointer-events: none;
+    }
+
+    /* Gameplay entities are positioned from the ground line and moved with transforms in JS. */
+    .dino {
+      position: absolute;
+      left: clamp(72px, 13vw, 142px);
+      bottom: calc(var(--play-bottom) - 8px);
+      width: clamp(112px, 15vw, 164px);
+      height: clamp(164px, 22vw, 238px);
+      transform: translateY(0);
+      will-change: transform;
+    }
+
+    .entity {
+      position: absolute;
+      left: 0;
+      bottom: var(--play-bottom);
+      will-change: transform;
+    }
+
+    .cactus {
+      width: clamp(51px, 6.1vw, 73px);
+      height: clamp(83px, 10.1vw, 118px);
+    }
+
+    .haxen {
+      width: clamp(38px, 5vw, 56px);
+      height: clamp(38px, 5vw, 56px);
+    }
+
+    .ui-layer {
+      z-index: 14;
+      pointer-events: none;
+    }
+
+    /* Score UI is hidden outside active gameplay. */
+    .score-board {
+      position: absolute;
+      top: clamp(14px, 3vw, 26px);
+      right: clamp(14px, 3vw, 28px);
+      display: flex;
+      align-items: center;
+      gap: clamp(4px, 1vw, 10px);
+    }
+
+    .score-content {
+      display: flex;
+      align-items: center;
+      color: var(--ink);
+      font-weight: 800;
+      font-size: clamp(20px, 4vw, 34px);
+      letter-spacing: 0;
+      text-shadow: 0 2px 0 rgba(255, 247, 215, 0.45);
+    }
+
+    .score-haxen {
+      width: clamp(44px, 7vw, 72px);
+      aspect-ratio: 1;
+    }
+
+    /* Screens are modal overlays for the three-state flow: menu, game, highscore. */
+    .screen {
+      z-index: 20;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      pointer-events: auto;
+    }
+
+    .screen.is-active {
+      display: flex;
+    }
+
+    .menu-stack {
+      display: grid;
+      justify-items: center;
+      gap: clamp(18px, 4vh, 34px);
+      transform: translateY(-4%);
+    }
+
+    .menu-title,
+    .highscore-title {
+      margin: 0;
+      color: var(--paper);
+      font-size: clamp(42px, 9vw, 92px);
+      line-height: 0.9;
+      letter-spacing: 0;
+      text-shadow: 0 5px 0 rgba(35, 51, 70, 0.26);
+    }
+
+    .asset-button {
+      position: relative;
+      width: clamp(220px, 40vw, 330px);
+      aspect-ratio: 400 / 143;
+      border: 0;
+      padding: 0;
+      color: var(--paper);
+      background: transparent;
+      cursor: pointer;
+    }
+
+    .asset-button:focus-visible {
+      outline: 4px solid #fff7d7;
+      outline-offset: 6px;
+    }
+
+    .button-lottie,
+    .button-label {
+      position: absolute;
+      inset: 0;
+    }
+
+    .button-label {
+      display: grid;
+      place-items: center;
+      padding-bottom: 4%;
+      font-size: clamp(28px, 5vw, 44px);
+      font-weight: 800;
+      color: var(--paper);
+      text-shadow: 0 3px 0 rgba(35, 51, 70, 0.42);
+      pointer-events: none;
+    }
+
+    .highscore-screen {
+      cursor: pointer;
+    }
+
+    .highscore-stack {
+      position: relative;
+      width: min(88vw, 600px);
+      aspect-ratio: 979 / 560;
+      display: grid;
+      place-items: center;
+    }
+
+    .highscore-asset {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    .highscore-copy {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      gap: clamp(4px, 1.2vw, 12px);
+      color: #3d3d36;
+      font-weight: 800;
+      transform: translateY(5%);
+      width: 70%;
+      -webkit-text-stroke: 1px #ababab;
+      paint-order: stroke fill;
+    }
+
+    .highscore-title {
+      color: #3d3d36;
+      font-size: clamp(34px, 7vw, 72px);
+      text-shadow: none;
+    }
+
+    .score-line {
+      font-size: clamp(22px, 4.6vw, 42px);
+      line-height: 1.05;
+    }
+
+    .score-line span {
+      display: inline-block;
+      min-width: 2ch;
+    }
+
+    .hint {
+      font-size: clamp(13px, 2.4vw, 18px);
+      line-height: 1.1;
+    }
+
+    .is-menu .ui-layer,
+    .is-highscore .ui-layer {
+      display: none;
+    }
+
+    @media (max-width: 680px) {
+      :root {
+        --ground-bottom: -44px;
+        --ground-height: 164px;
+        --play-bottom: 78px;
+      }
+
+      .game-shell {
+        min-height: 380px;
+      }
+
+      .hill-track {
+        bottom: 62px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="game-shell is-menu" id="gameShell" aria-label="Dino Lottie Runner">
+    <section class="scene-layer" aria-hidden="true">
+      <div class="sun" id="sunAnim"></div>
+      <div class="hill-track" id="hillTrack">
+        <div class="hill-group">
+          <img class="hill-tile is-small" src="./vectors/Hill.svg" alt="">
+          <img class="hill-tile is-large" src="./vectors/Hill.svg" alt="">
+          <img class="hill-tile is-medium" src="./vectors/Hill.svg" alt="">
+          <img class="hill-tile is-small" src="./vectors/Hill.svg" alt="">
+        </div>
+        <div class="hill-group">
+          <img class="hill-tile is-small" src="./vectors/Hill.svg" alt="">
+          <img class="hill-tile is-large" src="./vectors/Hill.svg" alt="">
+          <img class="hill-tile is-medium" src="./vectors/Hill.svg" alt="">
+          <img class="hill-tile is-small" src="./vectors/Hill.svg" alt="">
+        </div>
+      </div>
+      <div class="ground-track" id="groundTrack">
+        <img class="ground-tile" src="./vectors/Ground.svg" alt="">
+        <img class="ground-tile" src="./vectors/Ground.svg" alt="">
+      </div>
+    </section>
+
+    <section class="entity-layer" id="entityLayer" aria-hidden="true">
+      <div class="dino" id="dinoAnim"></div>
+    </section>
+
+    <section class="ui-layer" aria-live="polite">
+      <div class="score-board">
+        <div class="score-haxen" id="scoreHaxen"></div>
+        <div class="score-content">
+          <div>x <span id="scoreValue">0</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen menu-screen is-active" id="menuScreen" aria-label="Start menu">
+      <div class="menu-stack">
+        <button class="asset-button" id="startButton" type="button" aria-label="Start game">
+          <span class="button-lottie" id="startButtonAnim"></span>
+        </button>
+      </div>
+    </section>
+
+    <section class="screen highscore-screen" id="highscoreScreen" aria-label="Highscore screen">
+      <div class="highscore-stack">
+        <div class="highscore-asset" id="highscoreAnim"></div>
+        <div class="highscore-copy">
+          <div class="score-line">Run <span id="finalScore">0</span></div>
+          <div class="score-line">Best <span id="bestScore">0</span></div>
+          <div class="hint">Click to return</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const ASSETS = {
+      dinoIdle: './animations/dino_idle.json',
+      dinoRun: './animations/dino_run.json',
+      dinoEat: './animations/dino_eat.json',
+      cactusIdle: './animations/cactus_idle.json',
+      cactusCollide: './animations/cactus_collide.json',
+      haxenIdle: './animations/haxen_idle.json',
+      haxenCollect: './animations/haxen_collect.json',
+      sunRotate: './animations/sun_rotate.json',
+      stoneButton: './animations/stonebtn.json',
+      stoneButtonHover: './animations/stonebtn_hover.json',
+      stoneButtonClick: './animations/stonebtn_click.json',
+      highscore: './animations/highscore.json'
+    };
+
+    const STORAGE_KEY = 'dinoLottieBest';
+
+    const SCREEN = Object.freeze({
+      MENU: 'menu',
+      GAME: 'game',
+      HIGHSCORE: 'highscore'
+    });
+
+    // Gameplay tuning is centralized so speed, spawn cadence, and collision feel are easy to grade.
+    const TUNING = Object.freeze({
+      initialSpeed: 360,
+      acceleration: 9,
+      maxSpeedBonus: 210,
+      hillSpeedRatio: 0.28,
+      jumpVelocity: 850,
+      gravity: 1900,
+      collisionInset: 15,
+      entityStartPadding: 80,
+      offscreenPadding: 180,
+      maxFrameDelta: 0.033,
+      obstacleSpawnInitial: 1.2,
+      obstacleSpawnMin: 1.05,
+      obstacleSpawnRange: 0.85,
+      haxenSpawnInitial: 1.75,
+      haxenSpawnMin: 1.55,
+      haxenSpawnRange: 1.15,
+      haxenHeightRatio: 0.18,
+      haxenRemoveDelay: 280,
+      scoreIconResetDelay: 420,
+      dinoEatDuration: 520,
+      gameOverDelay: 420,
+      startDelay: 260
+    });
+
+    // Cached DOM references keep the game logic below focused on behavior.
+    const elements = {
+      shell: document.getElementById('gameShell'),
+      menuScreen: document.getElementById('menuScreen'),
+      highscoreScreen: document.getElementById('highscoreScreen'),
+      entityLayer: document.getElementById('entityLayer'),
+      dino: document.getElementById('dinoAnim'),
+      scoreValue: document.getElementById('scoreValue'),
+      finalScore: document.getElementById('finalScore'),
+      bestScore: document.getElementById('bestScore'),
+      groundTrack: document.getElementById('groundTrack'),
+      hillTrack: document.getElementById('hillTrack'),
+      startButton: document.getElementById('startButton'),
+      startButtonAnim: document.getElementById('startButtonAnim'),
+      scoreHaxen: document.getElementById('scoreHaxen'),
+      sun: document.getElementById('sunAnim'),
+      highscoreAnim: document.getElementById('highscoreAnim')
+    };
+
+    // Mutable runtime state is kept in one object so resets and screen transitions are explicit.
+    const state = {
+      screen: SCREEN.MENU,
+      score: 0,
+      best: readBestScore(),
+      elapsed: 0,
+      lastTime: 0,
+      speed: TUNING.initialSpeed,
+      groundX: 0,
+      hillX: 0,
+      dinoY: 0,
+      dinoVelocity: 0,
+      isJumping: false,
+      obstacleTimer: TUNING.obstacleSpawnInitial,
+      haxenTimer: TUNING.haxenSpawnInitial,
+      collisionLocked: false,
+      startQueued: false,
+      isEating: false,
+      dinoEatTimeout: 0,
+      obstacles: [],
+      haxens: []
+    };
+
+    const animations = {};
+
+    // Tracked animations replace a persistent UI/character slot and clean up the previous SVG.
+    function loadTrackedAnimation(key, container, path, options = {}) {
+      if (animations[key]) {
+        animations[key].destroy();
+      }
+
+      animations[key] = loadAnimation(container, path, options);
+      return animations[key];
+    }
+
+    function loadAnimation(container, path, options = {}) {
+      return lottie.loadAnimation({
+        container,
+        renderer: 'svg',
+        loop: options.loop ?? true,
+        autoplay: options.autoplay ?? true,
+        path
+      });
+    }
+
+    function readBestScore() {
+      try {
+        return Number(localStorage.getItem(STORAGE_KEY) || 0);
+      } catch (error) {
+        return 0;
+      }
+    }
+
+    function saveBestScore(score) {
+      try {
+        localStorage.setItem(STORAGE_KEY, String(score));
+      } catch (error) {
+        return;
+      }
+    }
+
+    function setScreen(screen) {
+      state.screen = screen;
+      elements.shell.classList.toggle('is-menu', screen === SCREEN.MENU);
+      elements.shell.classList.toggle('is-game', screen === SCREEN.GAME);
+      elements.shell.classList.toggle('is-highscore', screen === SCREEN.HIGHSCORE);
+      elements.menuScreen.classList.toggle('is-active', screen === SCREEN.MENU);
+      elements.highscoreScreen.classList.toggle('is-active', screen === SCREEN.HIGHSCORE);
+    }
+
+    function loadDino(path, loop = true) {
+      loadTrackedAnimation('dino', elements.dino, path, { loop });
+    }
+
+    function loadButton(path, loop = true) {
+      return loadTrackedAnimation('startButton', elements.startButtonAnim, path, { loop });
+    }
+
+    // Reset only run-specific state; persistent best score and static background animations stay loaded.
+    function resetRun() {
+      state.score = 0;
+      state.elapsed = 0;
+      state.speed = TUNING.initialSpeed;
+      state.groundX = 0;
+      state.hillX = 0;
+      state.dinoY = 0;
+      state.dinoVelocity = 0;
+      state.isJumping = false;
+      state.obstacleTimer = TUNING.obstacleSpawnInitial;
+      state.haxenTimer = TUNING.haxenSpawnInitial;
+      state.collisionLocked = false;
+      state.startQueued = false;
+      state.isEating = false;
+      window.clearTimeout(state.dinoEatTimeout);
+      state.dinoEatTimeout = 0;
+      elements.scoreValue.textContent = '0';
+      elements.dino.style.transform = 'translateY(0)';
+      clearEntities(state.obstacles);
+      clearEntities(state.haxens);
+      state.obstacles = [];
+      state.haxens = [];
+    }
+
+    function clearEntities(list) {
+      list.forEach((entity) => {
+        if (entity.animation) {
+          entity.animation.destroy();
+        }
+        entity.el.remove();
+      });
+    }
+
+    function startGame() {
+      state.startQueued = false;
+      resetRun();
+      setScreen(SCREEN.GAME);
+      loadDino(ASSETS.dinoRun);
+      state.lastTime = performance.now();
+    }
+
+    function showMenu() {
+      resetRun();
+      setScreen(SCREEN.MENU);
+      loadDino(ASSETS.dinoIdle);
+      loadButton(ASSETS.stoneButton, true);
+    }
+
+    function showHighscore() {
+      state.best = Math.max(state.best, state.score);
+      saveBestScore(state.best);
+      elements.finalScore.textContent = String(state.score);
+      elements.bestScore.textContent = String(state.best);
+      setScreen(SCREEN.HIGHSCORE);
+    }
+
+    function jump() {
+      if (state.screen !== SCREEN.GAME || state.isJumping || state.collisionLocked) {
+        return;
+      }
+
+      state.isJumping = true;
+      state.dinoVelocity = TUNING.jumpVelocity;
+      if (!state.isEating) {
+        loadDino(ASSETS.dinoRun, true);
+      }
+    }
+
+    function spawnObstacle() {
+      state.obstacles.push(createMovingEntity('cactus', ASSETS.cactusIdle));
+    }
+
+    function spawnHaxen() {
+      const entity = createMovingEntity('haxen', ASSETS.haxenIdle);
+      const playBottom = Number.parseFloat(getComputedStyle(elements.shell).getPropertyValue('--play-bottom')) || 96;
+
+      entity.collected = false;
+      entity.el.style.bottom = `${Math.round(playBottom + elements.shell.clientHeight * TUNING.haxenHeightRatio)}px`;
+      state.haxens.push(entity);
+    }
+
+    function createMovingEntity(type, idleAnimation) {
+      const el = document.createElement('div');
+      el.className = `entity ${type}`;
+      elements.entityLayer.appendChild(el);
+
+      return {
+        el,
+        x: elements.shell.clientWidth + TUNING.entityStartPadding,
+        animation: loadAnimation(el, idleAnimation)
+      };
+    }
+
+    function collectHaxen(entity) {
+      if (entity.collected) {
+        return;
+      }
+
+      entity.collected = true;
+      state.score += 1;
+      elements.scoreValue.textContent = String(state.score);
+      playDinoEat();
+      playScoreHaxenCollect();
+      entity.animation.destroy();
+      entity.animation = loadAnimation(entity.el, ASSETS.haxenCollect, { loop: false });
+      window.setTimeout(() => removeEntity(state.haxens, entity), TUNING.haxenRemoveDelay);
+    }
+
+    function playDinoEat() {
+      window.clearTimeout(state.dinoEatTimeout);
+      state.isEating = true;
+      loadDino(ASSETS.dinoEat, false);
+      state.dinoEatTimeout = window.setTimeout(() => {
+        state.isEating = false;
+        if (state.screen === SCREEN.GAME && !state.collisionLocked) {
+          loadDino(ASSETS.dinoRun, true);
+        }
+      }, TUNING.dinoEatDuration);
+    }
+
+    function playScoreHaxenCollect() {
+      const collectAnimation = loadTrackedAnimation('scoreHaxen', elements.scoreHaxen, ASSETS.haxenCollect, { loop: false });
+      collectAnimation.addEventListener('complete', () => {
+        if (state.screen === SCREEN.GAME) {
+          loadTrackedAnimation('scoreHaxen', elements.scoreHaxen, ASSETS.haxenIdle, { loop: true });
+        }
+      });
+      window.setTimeout(() => {
+        if (state.screen === SCREEN.GAME) {
+          loadTrackedAnimation('scoreHaxen', elements.scoreHaxen, ASSETS.haxenIdle, { loop: true });
+        }
+      }, TUNING.scoreIconResetDelay);
+    }
+
+    function removeEntity(list, entity) {
+      const index = list.indexOf(entity);
+      if (index !== -1) {
+        list.splice(index, 1);
+      }
+      if (entity.animation) {
+        entity.animation.destroy();
+      }
+      entity.el.remove();
+    }
+
+    function hitObstacle(entity) {
+      if (state.collisionLocked) {
+        return;
+      }
+
+      state.collisionLocked = true;
+      if (entity.animation) {
+        entity.animation.destroy();
+      }
+      entity.animation = loadAnimation(entity.el, ASSETS.cactusCollide, { loop: false });
+      window.setTimeout(showHighscore, TUNING.gameOverDelay);
+    }
+
+    // One frame of active gameplay: advance time, move layers, spawn entities, then resolve collisions.
+    function update(dt) {
+      state.elapsed += dt;
+      state.speed = TUNING.initialSpeed + Math.min(state.elapsed * TUNING.acceleration, TUNING.maxSpeedBonus);
+
+      updateScrolling(dt);
+      updateJump(dt);
+      updateSpawns(dt);
+      updateEntities(dt);
+      checkCollisions();
+    }
+
+    function updateScrolling(dt) {
+      const groundWidth = elements.groundTrack.firstElementChild.getBoundingClientRect().width || elements.shell.clientWidth;
+      const hillWidth = elements.hillTrack.firstElementChild.getBoundingClientRect().width || elements.shell.clientWidth;
+
+      state.groundX -= state.speed * dt;
+      state.hillX -= state.speed * TUNING.hillSpeedRatio * dt;
+
+      if (state.groundX <= -groundWidth) {
+        state.groundX += groundWidth;
+      }
+      if (state.hillX <= -hillWidth) {
+        state.hillX += hillWidth;
+      }
+
+      elements.groundTrack.style.transform = `translateX(${state.groundX}px)`;
+      elements.hillTrack.style.transform = `translateX(${state.hillX}px)`;
+    }
+
+    function updateJump(dt) {
+      if (!state.isJumping) {
+        return;
+      }
+
+      state.dinoVelocity -= TUNING.gravity * dt;
+      state.dinoY += state.dinoVelocity * dt;
+
+      if (state.dinoY <= 0) {
+        state.dinoY = 0;
+        state.dinoVelocity = 0;
+        state.isJumping = false;
+        if (state.screen === SCREEN.GAME && !state.collisionLocked && !state.isEating) {
+          loadDino(ASSETS.dinoRun, true);
+        }
+      }
+
+      elements.dino.style.transform = `translateY(${-state.dinoY}px)`;
+    }
+
+    function updateSpawns(dt) {
+      state.obstacleTimer -= dt;
+      state.haxenTimer -= dt;
+
+      if (state.obstacleTimer <= 0) {
+        spawnObstacle();
+        state.obstacleTimer = TUNING.obstacleSpawnMin + Math.random() * TUNING.obstacleSpawnRange;
+      }
+
+      if (state.haxenTimer <= 0) {
+        spawnHaxen();
+        state.haxenTimer = TUNING.haxenSpawnMin + Math.random() * TUNING.haxenSpawnRange;
+      }
+    }
+
+    function updateEntities(dt) {
+      moveEntityList(state.obstacles, dt, state.speed);
+      moveEntityList(state.haxens, dt, state.speed);
+    }
+
+    function moveEntityList(list, dt, speed) {
+      for (let i = list.length - 1; i >= 0; i -= 1) {
+        const entity = list[i];
+        entity.x -= speed * dt;
+        entity.el.style.transform = `translateX(${entity.x}px)`;
+
+        if (entity.x < -TUNING.offscreenPadding) {
+          removeEntity(list, entity);
+        }
+      }
+    }
+
+    function checkCollisions() {
+      if (state.collisionLocked) {
+        return;
+      }
+
+      for (const obstacle of state.obstacles) {
+        if (overlaps(elements.dino, obstacle.el, TUNING.collisionInset)) {
+          hitObstacle(obstacle);
+          return;
+        }
+      }
+
+      for (const haxen of [...state.haxens]) {
+        if (!haxen.collected && canCollectHaxen(haxen.el)) {
+          collectHaxen(haxen);
+        }
+      }
+    }
+
+    function canCollectHaxen(haxenEl) {
+      const dino = elements.dino.getBoundingClientRect();
+      const haxen = haxenEl.getBoundingClientRect();
+      const dinoCenterX = dino.left + dino.width / 2;
+      const dinoCenterY = dino.top + dino.height / 2;
+      const haxenCenterX = haxen.left + haxen.width / 2;
+      const haxenCenterY = haxen.top + haxen.height / 2;
+      // Haxen should be forgiving to collect while jumping, unlike cactus collision.
+      const xReach = dino.width * 0.48 + haxen.width * 0.5 + 46;
+      const yReach = dino.height * 0.42 + haxen.height * 0.5 + 18;
+
+      return (
+        Math.abs(dinoCenterX - haxenCenterX) <= xReach &&
+        Math.abs(dinoCenterY - haxenCenterY) <= yReach
+      );
+    }
+
+    // Inset keeps transparent SVG padding from making collisions feel unfair.
+    function overlaps(a, b, inset) {
+      const first = a.getBoundingClientRect();
+      const second = b.getBoundingClientRect();
+
+      return !(
+        first.right - inset < second.left + inset ||
+        first.left + inset > second.right - inset ||
+        first.bottom - inset < second.top + inset ||
+        first.top + inset > second.bottom - inset
+      );
+    }
+
+    function frame(time) {
+      const dt = Math.min((time - state.lastTime) / 1000 || 0, TUNING.maxFrameDelta);
+      state.lastTime = time;
+
+      if (state.screen === SCREEN.GAME && !state.collisionLocked) {
+        update(dt);
+      }
+
+      requestAnimationFrame(frame);
+    }
+
+    function initAnimations() {
+      loadTrackedAnimation('sun', elements.sun, ASSETS.sunRotate, { loop: true });
+      loadTrackedAnimation('scoreHaxen', elements.scoreHaxen, ASSETS.haxenIdle, { loop: true });
+      loadTrackedAnimation('highscore', elements.highscoreAnim, ASSETS.highscore, { loop: true });
+      loadDino(ASSETS.dinoIdle);
+      loadButton(ASSETS.stoneButton, true);
+      elements.bestScore.textContent = String(state.best);
+    }
+
+    function bindInput() {
+      elements.startButton.addEventListener('pointerenter', () => {
+        if (state.screen === SCREEN.MENU) {
+          loadButton(ASSETS.stoneButtonHover, true);
+        }
+      });
+
+      elements.startButton.addEventListener('pointerleave', () => {
+        if (state.screen === SCREEN.MENU) {
+          loadButton(ASSETS.stoneButton, true);
+        }
+      });
+
+      elements.startButton.addEventListener('click', (event) => {
+        event.stopPropagation();
+        queueStartFromMenu();
+      });
+
+      elements.highscoreScreen.addEventListener('click', showMenu);
+
+      elements.shell.addEventListener('pointerdown', () => {
+        if (state.screen === SCREEN.GAME) {
+          jump();
+        }
+      });
+
+      window.addEventListener('keydown', (event) => {
+        const jumpKey = event.code === 'Space' || event.code === 'ArrowUp';
+        const confirmKey = event.code === 'Space' || event.code === 'Enter';
+
+        if (state.screen === SCREEN.MENU && confirmKey) {
+          queueStartFromMenu();
+        } else if (state.screen === SCREEN.GAME && jumpKey) {
+          event.preventDefault();
+          jump();
+        } else if (state.screen === SCREEN.HIGHSCORE && confirmKey) {
+          showMenu();
+        }
+      });
+    }
+
+    function queueStartFromMenu() {
+      if (state.startQueued) {
+        return;
+      }
+
+      state.startQueued = true;
+      loadButton(ASSETS.stoneButtonClick, false);
+      window.setTimeout(startGame, TUNING.startDelay);
+    }
+
+    initAnimations();
+    bindInput();
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>
