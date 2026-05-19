@@ -1,0 +1,9 @@
+@font-face {
+    font-family: 'Prehistoric Caveman';
+    src: url('PrehistoricCaveman.woff2') format('woff2'),
+        url('PrehistoricCaveman.woff') format('woff');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
