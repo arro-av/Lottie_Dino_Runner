@@ -1,3 +1,5 @@
+<img width="1918" height="872" alt="grafik" src="https://github.com/user-attachments/assets/5c39a0ac-52b1-445f-b248-2326d2e9b4ea" />
+
 ## Project Idea
 
 This project is a simplified Chrome Dino runner clone using Lottie SVG animations as the visual system. The game combines animated character and UI assets with static SVG scenery to create a small playable runner.
